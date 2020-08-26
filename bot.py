@@ -15,19 +15,15 @@ async def weaksauce(ctx):
   response = '<@!118714407642464257> you\'re weaksauce!'
   await ctx.send(response)
 
-@bot.command(name='best', help='Confidence booster')
-async def best(ctx):
-  mention = ctx.message.author.mention
-  response = f'{mention} is the best!'
-  await ctx.send(response)
-
-@bot.command(name='roll_dice', help='Simulates rolling dice')
+@bot.command(name='roll', help='Simulates rolling dice')
 async def roll(ctx, number_of_dice: int, number_of_sides: int):
   dice = [
     random.choice(range(1, number_of_sides + 1))
     for _ in range(number_of_dice)
   ]
-  await ctx.send(', '.join(str(i) for i in dice) + '\n Sum: ' + str(sum(dice)))
+  response = ', '.join(str(i) for i in dice)
+  if number_of_dice > 1: response += '\nSum: ' + str(sum(dice))
+  await ctx.send(response)
 
 @bot.event
 async def on_ready():
