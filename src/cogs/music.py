@@ -1,75 +1,170 @@
 from discord.ext import commands
+from typing import Union
 import discord
-import lavalink
+import wavelink
+import asyncio
+import time
 
-class MusicCog(commands.Cog):
+class MusicController:
+  def __init__(self, bot, guild_id):
+    self.bot = bot
+    self.guild_id = guild_id
+    self.channel = None
+
+    self.next = asyncio.Event()
+    self.queue = asyncio.Queue()
+
+    self.volume = 40
+    self.now_playing = None
+
+    self.bot.loop.create_task(self.controller_loop())
+
+  async def controller_loop(self):
+    await self.bot.wait_until_ready()
+
+    player = self.bot.wavelink.get_player(self.guild_id)
+    await player.set_volume(self.volume)
+
+    while True:
+      if self.now_playing:
+        await self.now_playing.delete()
+
+      self.next.clear()
+
+      song = await self.queue.get()
+      await player.play(song)
+      # TODO: troubleshoot
+      # self.now_playing = await self.channel.send(f'Now playing: {song}')
+
+      await self.next.wait()
+
+
+class Music(commands.Cog):
   def __init__(self, bot):
     self.bot = bot
-    self.bot.music = lavalink.Client(self.bot.user.id)
-    self.bot.music.add_node('localhost', 7000, 'testing', 'na', 'music-node')
-    self.bot.add_listener(self.bot.music.voice_update_handler, 'on_socket_response')
-    self.bot.music.add_event_hook(self.track_hook)
+    self.controllers = {}
+    if not hasattr(bot, 'wavelink'): self.bot.wavelink = wavelink.Client(bot=self.bot)
+    self.bot.loop.create_task(self.start_nodes())
 
+  async def start_nodes(self):
+    await self.bot.wait_until_ready()
+    await self.bot.wavelink.initiate_node(host='localhost', port=7000, rest_uri='http://localhost:7000', password='testing', identifier='TEST', region='us_east')
+
+  async def on_event_hook(self, event):
+    if isinstance(event, (wavelink.TrackEnd, wavelink.TrackException)):
+      controller = self.get_controller(event.player)
+      controller.next.set()
+
+  def get_controller(self, value: Union[commands.Context, wavelink.Player]):
+    if isinstance(value, commands.Context):
+      gid = value.guild.id
+    else:
+      gid = value.guild_id
+
+    try:
+      controller = self.controllers[gid]
+    except KeyError:
+      controller = MusicController(self.bot, gid)
+      self.controllers[gid] = controller
+
+    return controller
+  
   @commands.command(name='join')
-  async def join(self, ctx):
-    member = ctx.message.author
-    if member is not None and member.voice is not None:
-      vc = member.voice.channel
-      player = self.bot.music.player_manager.create(ctx.guild.id, endpoint=str(ctx.guild.region))
-      if not player.is_connected:
-        player.store('channel', ctx.channel.id)
-        await self.connect_to(ctx.guild.id, str(vc.id))
-        # await ctx.send(f'Joined {vc}')
-    else:
-      await ctx.send('You must be in a voice channel to play music...')
+  async def join(self, ctx, *, channel: discord.VoiceChannel=None):
+    if not channel:
+      try:
+        channel = ctx.author.voice.channel
+      except AttributeError:
+        ctx.send('Please specify a channel to join...')
 
-  @commands.command(name='leave')
-  async def leave(self, ctx):
-    member = ctx.message.author
-    if member is not None and member.voice is not None:
-      await self.connect_to(ctx.message.guild.id, None)
-      # vc = member.voice.channel
-      # await ctx.sent(f'Left {vc}')
-    else:
-      await ctx.send('You\'re not in a voice channel...')
+    controller = self.get_controller(ctx)
+    controller.channel = channel
+
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    await ctx.send(f'Connecting to **{channel.name}**')
+    await player.connect(channel.id)
+
+  @commands.command(name='disconnect')
+  async def stop(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+
+    try:
+      del self.controllers[ctx.guild.id]
+    except KeyError:
+      await player.disconnect()
+      return await ctx.send('There\'s no controller to stop...', delete_after=10)
+
+    await player.disconnect()
+    await ctx.send('Disconnected player and killed controller...', delete_after=10)
 
   @commands.command(name='play')
   async def play(self, ctx, *, query):
-    try:
-      player = self.bot.music.player_manager.get(ctx.guild.id)
-      query = f'ytsearch:{query}'
-      results = await player.node.get_tracks(query)
-      tracks = results['tracks'][0:10]
-      
-      query_result = ''
-      for i, track in enumerate(tracks):
-        query_result += f'{i+1}) {track["info"]["title"]} - {track["info"]["uri"]}\n'
-      embed = discord.Embed()
-      embed.description = query_result
+    query = f'ytsearch:{query}'
 
-      await ctx.channel.send(embed=embed)
+    tracks = await self.bot.wavelink.get_tracks(f'{query}')
+    if not tracks:
+      return await ctx.send('Couldn\'t find any songs with that query :(')
 
-      # TODO: validation
-      response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id)
-      track = tracks[int(response.content)-1]
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    if not player.is_connected:
+      await ctx.invoke(self.connect_)
 
-      player.add(requester=ctx.author.id, track=track)
-      await ctx.send(f'Added to queue: {track["info"]["title"]}')
-      if not player.is_playing:
-        await player.play()
-      
-    except Exception as error:
-      print(error)
+    tracks = tracks[0:10]
+    query_result = ''
+    for i, track in enumerate(tracks):
+      s = track.info['length']/1000
+      query_result += f'{i+1}) {track.info["title"]} - {time.strftime("%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
+    embed = discord.Embed()
+    embed.description = query_result
+    await ctx.channel.send(embed=embed)
 
-  async def track_hook(self, event):
-    if isinstance(event, lavalink.events.QueueEndEvent):
-      guild_id = int(event.player.guild_id)
-      await self.connect_to(guild_id, None)
+    # TODO: validation
+    response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id)
+    track = tracks[int(response.content)-1]
 
-  async def connect_to(self, guild_id: int, channel_id: str):
-    ws = self.bot._connection._get_websocket(guild_id)
-    await ws.voice_state(str(guild_id), channel_id)
+    controller = self.get_controller(ctx)
+    await controller.queue.put(track)
+    await ctx.send(f'Added to the queue: **{str(track)}**')
+
+  @commands.command(name='pause')
+  async def pause(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    if not player.is_playing:
+      return await ctx.send('I\'m not playing anything!', delete_after=10)
+
+    await ctx.send('Pausing the song!', delete_after=10)
+    await player.set_pause(True)
+
+  @commands.command(name='resume')
+  async def resume(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    if not player.paused:
+      return await ctx.send('I\'m not currently paused!', delete_after=10)
+
+    await ctx.send('Resuming the song!', delete_after=10)
+    await player.set_pause(False)
+
+  @commands.command(name='skip')
+  async def skip(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    if not player.is_playing:
+      return await ctx.send('I\'m not playing anything!', delete_after=10)
+
+    await ctx.send('Skipping the song!', delete_after=10)
+    await player.stop()
+
+  @commands.command(name='nowplaying')
+  async def now_playing(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+
+    if not player.current:
+      return await ctx.send('I\'m not playing anything!', delete_after=10)
+
+    controller = self.get_controller(ctx)
+    # await controller.now_playing.delete()
+
+    controller.now_playing = await ctx.send(f'Now playing: **{player.current}**')
 
 
 def setup(bot):
-  bot.add_cog(MusicCog(bot))
+  bot.add_cog(Music(bot))
