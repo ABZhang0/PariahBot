@@ -4,6 +4,7 @@ import discord
 import wavelink
 import asyncio
 import time
+import itertools
 
 class MusicController:
   def __init__(self, bot, guild_id):
@@ -33,8 +34,7 @@ class MusicController:
 
       song = await self.queue.get()
       await player.play(song)
-      # TODO: troubleshoot
-      # self.now_playing = await self.channel.send(f'Now playing: {song}')
+      self.now_playing = await self.bot.change_presence(activity=discord.Game(name=song.info['title']))
 
       await self.next.wait()
 
@@ -54,6 +54,7 @@ class Music(commands.Cog):
   async def on_event_hook(self, event):
     if isinstance(event, (wavelink.TrackEnd, wavelink.TrackException)):
       controller = self.get_controller(event.player)
+      controller.now_playing = await controller.bot.change_presence(activity=None)
       controller.next.set()
 
   def get_controller(self, value: Union[commands.Context, wavelink.Player]):
@@ -70,7 +71,7 @@ class Music(commands.Cog):
 
     return controller
   
-  @commands.command(name='join')
+  @commands.command(name='join', help='Invites bot to channel')
   async def join(self, ctx, *, channel: discord.VoiceChannel=None):
     if not channel:
       try:
@@ -85,7 +86,7 @@ class Music(commands.Cog):
     await ctx.send(f'Connecting to **{channel.name}**')
     await player.connect(channel.id)
 
-  @commands.command(name='disconnect')
+  @commands.command(name='disconnect', help='Removes bot from channel')
   async def stop(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
 
@@ -98,7 +99,7 @@ class Music(commands.Cog):
     await player.disconnect()
     await ctx.send('Disconnected player and killed controller...', delete_after=10)
 
-  @commands.command(name='play')
+  @commands.command(name='play', help='Returns song results by query')
   async def play(self, ctx, *, query):
     query = f'ytsearch:{query}'
 
@@ -108,13 +109,13 @@ class Music(commands.Cog):
 
     player = self.bot.wavelink.get_player(ctx.guild.id)
     if not player.is_connected:
-      await ctx.invoke(self.connect_)
+      await ctx.invoke(self.join)
 
     tracks = tracks[0:10]
     query_result = ''
     for i, track in enumerate(tracks):
       s = track.info['length']/1000
-      query_result += f'{i+1}) {track.info["title"]} - {time.strftime("%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
+      query_result += f'{i+1}) {track.info["title"]} - {time.strftime("%H:%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
     embed = discord.Embed()
     embed.description = query_result
     await ctx.channel.send(embed=embed)
@@ -127,7 +128,7 @@ class Music(commands.Cog):
     await controller.queue.put(track)
     await ctx.send(f'Added to the queue: **{str(track)}**')
 
-  @commands.command(name='pause')
+  @commands.command(name='pause', help='Pauses currently playing song')
   async def pause(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
     if not player.is_playing:
@@ -136,7 +137,7 @@ class Music(commands.Cog):
     await ctx.send('Pausing the song!', delete_after=10)
     await player.set_pause(True)
 
-  @commands.command(name='resume')
+  @commands.command(name='resume', help='Resumes currently paused song')
   async def resume(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
     if not player.paused:
@@ -145,7 +146,7 @@ class Music(commands.Cog):
     await ctx.send('Resuming the song!', delete_after=10)
     await player.set_pause(False)
 
-  @commands.command(name='skip')
+  @commands.command(name='skip', help='Skips currently playing song')
   async def skip(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
     if not player.is_playing:
@@ -154,7 +155,7 @@ class Music(commands.Cog):
     await ctx.send('Skipping the song!', delete_after=10)
     await player.stop()
 
-  @commands.command(name='nowplaying')
+  @commands.command(name='nowplaying', help='Returns currently playing song')
   async def now_playing(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
 
@@ -165,6 +166,22 @@ class Music(commands.Cog):
     # await controller.now_playing.delete()
 
     controller.now_playing = await ctx.send(f'Now playing: **{player.current}**')
+
+  @commands.command(name='queue', help='Returns song queue info')
+  async def queue(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    controller = self.get_controller(ctx)
+
+    if not player.current or not controller.queue._queue:
+      return await ctx.send('There are no songs currently in the queue.', delete_after=10)
+
+    upcoming = list(itertools.islice(controller.queue._queue, 0, 5))
+
+    fmt = '\n'.join(f'**`{str(song)}`**' for song in upcoming)
+    embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=fmt)
+
+    await ctx.send(f'Total number of songs in queue: {len(controller.queue._queue)}')
+    await ctx.send(embed=embed)
 
 
 def setup(bot):
