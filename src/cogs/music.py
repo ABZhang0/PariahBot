@@ -48,7 +48,7 @@ class Music(commands.Cog):
 
   async def start_nodes(self):
     await self.bot.wait_until_ready()
-    node = await self.bot.wavelink.initiate_node(host='localhost', port=7000, rest_uri='http://localhost:7000', password='testing', identifier='TEST', region='us_east')
+    node = await self.bot.wavelink.initiate_node(host='0.0.0.0', port=7000, rest_uri='http://0.0.0.0:7000', password='testing', identifier='TEST', region='us_east')
     node.set_hook(self.on_event_hook)
 
   async def on_event_hook(self, event):
