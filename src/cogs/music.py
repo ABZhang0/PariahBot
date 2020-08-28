@@ -93,9 +93,11 @@ class Music(commands.Cog):
     try:
       del self.controllers[ctx.guild.id]
     except KeyError:
+      await player.stop()
       await player.disconnect()
       return await ctx.send('There\'s no controller to stop...', delete_after=10)
 
+    await player.stop()
     await player.disconnect()
     await ctx.send('Disconnected player and killed controller...', delete_after=10)
 
@@ -115,10 +117,9 @@ class Music(commands.Cog):
     query_result = ''
     for i, track in enumerate(tracks):
       s = track.info['length']/1000
-      query_result += f'{i+1}) {track.info["title"]} - {time.strftime("%H:%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
-    embed = discord.Embed()
-    embed.description = query_result
-    await ctx.channel.send(embed=embed)
+      query_result += f'**{i+1})** {track.info["title"]} - {time.strftime("%H:%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
+    query_embed = discord.Embed(description=query_result)
+    await ctx.channel.send(embed=query_embed)
 
     # TODO: validation
     response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id)
@@ -154,6 +155,18 @@ class Music(commands.Cog):
 
     await ctx.send('Skipping the song!', delete_after=10)
     await player.stop()
+
+  @commands.command(name='volume', help='Adjust music volume')
+  async def volume(self, ctx, *, direction: str):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    controller = self.get_controller(ctx)
+    if direction == 'up':
+      controller.volume += 10
+    elif direction == 'down':
+      controller.volume -= 10
+
+    await ctx.send(f'Setting player volume to {controller.volume}', delete_after=10)
+    await player.set_volume(controller.volume)
 
   @commands.command(name='nowplaying', help='Returns currently playing song')
   async def now_playing(self, ctx):

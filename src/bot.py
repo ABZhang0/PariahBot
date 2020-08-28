@@ -50,5 +50,6 @@ async def ping(ctx):
 async def on_ready():
   print(f'{bot.user} has logged in.')
   bot.load_extension('cogs.music')
+  bot.load_extension('cogs.games')
 
 bot.run(TOKEN)
