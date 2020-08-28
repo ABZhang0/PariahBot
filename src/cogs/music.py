@@ -122,7 +122,7 @@ class Music(commands.Cog):
     await ctx.channel.send(embed=query_embed)
 
     # TODO: validation
-    response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id)
+    response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id, timeout=30)
     track = tracks[int(response.content)-1]
 
     controller = self.get_controller(ctx)

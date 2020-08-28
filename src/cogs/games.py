@@ -25,7 +25,7 @@ class Games(commands.Cog):
     
     stand = False
     while(player_total <= 21 and not stand):
-      response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id)
+      response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id, timeout=30)
       if response.content == 'stand':
         stand = True
       else:
