@@ -9,7 +9,7 @@ class Games(commands.Cog):
 
   @commands.command(name='blackjack', help='Play blackjack')
   async def blackjack(self, ctx):
-    deck = [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]*4
+    deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13]*4
     player_hand = []
     for _ in range(2):
       random.shuffle(deck)
