@@ -1,1 +1,1 @@
-worker: java -jar src/Lavalink.jar & python src/bot.py & wait -n
+worker: python src/bot.py

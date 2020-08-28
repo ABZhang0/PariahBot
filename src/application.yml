@@ -1,6 +1,6 @@
 server: # REST and WS server
-  port: 7000
-  address: "https://pariah-bot.herokuapp.com"
+  port: 80
+  address: "https://pariah-lavalink.herokuapp.com"
 lavalink:
   server:
     password: "youshallnotpass"
