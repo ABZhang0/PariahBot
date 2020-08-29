@@ -5,6 +5,8 @@ import wavelink
 import asyncio
 import time
 import itertools
+from dotenv import load_dotenv
+import os
 
 class MusicController:
   def __init__(self, bot, guild_id):
@@ -45,11 +47,25 @@ class Music(commands.Cog):
     self.controllers = {}
     if not hasattr(bot, 'wavelink'): self.bot.wavelink = wavelink.Client(bot=self.bot)
     self.bot.loop.create_task(self.start_nodes())
-    self.bot.loop.create_task(self.keep_alive_loop())
 
   async def start_nodes(self):
     await self.bot.wait_until_ready()
-    node = await self.bot.wavelink.initiate_node(host='pariah-lavalink.herokuapp.com', port=80, rest_uri='https://pariah-lavalink.herokuapp.com', password='youshallnotpass', identifier='TEST', region='us_east')
+
+    load_dotenv()
+    WAVELINK_HOST = os.getenv('WAVELINK_HOST')
+    WAVELINK_PORT = os.getenv('WAVELINK_PORT')
+    WAVELINK_URI = os.getenv('WAVELINK_URI')
+    WAVELINK_PASSWORD = os.getenv('WAVELINK_PASSWORD')
+
+    node = await self.bot.wavelink.initiate_node(
+      host=WAVELINK_HOST,
+      port=WAVELINK_PORT,
+      rest_uri=WAVELINK_URI,
+      password=WAVELINK_PASSWORD,
+      identifier='TEST',
+      region='us_east',
+      heartbeat=45
+    )
     node.set_hook(self.on_event_hook)
 
   async def on_event_hook(self, event):
@@ -71,14 +87,6 @@ class Music(commands.Cog):
       self.controllers[gid] = controller
 
     return controller
-
-  # TODO: find a better method for keep-alive
-  async def keep_alive_loop(self):
-    await self.bot.wait_until_ready()
-    while True:
-      await asyncio.sleep(30) # task runs every 30 seconds
-      print('Pinging server to keep connection alive...')
-      await self.bot.wavelink.get_tracks('') # ping server
   
   @commands.command(name='join', help='Invites bot to channel')
   async def join(self, ctx, *, channel: discord.VoiceChannel=None):
