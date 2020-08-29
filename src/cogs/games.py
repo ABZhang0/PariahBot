@@ -3,7 +3,7 @@ import discord
 import random
 import os
 from pymongo import MongoClient
-
+import asyncio
 
 class Games(commands.Cog):
   def __init__(self, bot):
@@ -81,6 +81,7 @@ class Games(commands.Cog):
     dealer_embed.add_field(name='Total', value=dealer_total)
     dealer_embed_msg = await ctx.send(embed=dealer_embed)
     while dealer_total < 17:
+      await asyncio.sleep(0.5)
       card = deck.pop()
       dealer_total += card
       dealer_hand.append(self.card_converter(card))
