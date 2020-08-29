@@ -4,6 +4,7 @@ from dotenv import load_dotenv
 import random
 from discord.ext import commands
 from googleapiclient.discovery import build
+import dns
 
 load_dotenv()
 TOKEN = os.getenv('DISCORD_TOKEN')
@@ -27,17 +28,6 @@ async def search(ctx, *query):
   res = req.execute()
   video_id = res['items'][0]['id']['videoId']
   response = f'https://www.youtube.com/watch?v={video_id}'
-  await ctx.send(response)
-
-
-@bot.command(name='roll', help='Simulates rolling dice')
-async def roll(ctx, number_of_dice: int, number_of_sides: int):
-  dice = [
-    random.choice(range(1, number_of_sides + 1))
-    for _ in range(number_of_dice)
-  ]
-  response = ', '.join(str(i) for i in dice)
-  if number_of_dice > 1: response += '\nSum: ' + str(sum(dice))
   await ctx.send(response)
 
 

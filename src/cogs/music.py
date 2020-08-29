@@ -175,12 +175,16 @@ class Music(commands.Cog):
 
   @commands.command(name='volume', help='Adjust music volume')
   async def volume(self, ctx, *, direction: str):
+    if direction != 'up' and direction != 'down':
+      await ctx.send('Invalid volume input...')
+      return
+    
     player = self.bot.wavelink.get_player(ctx.guild.id)
     controller = self.get_controller(ctx)
     if direction == 'up':
-      controller.volume += 10
+      controller.volume *= 2
     elif direction == 'down':
-      controller.volume -= 10
+      controller.volume //= 2
 
     await ctx.send(f'Setting player volume to {controller.volume}', delete_after=10)
     await player.set_volume(controller.volume)
