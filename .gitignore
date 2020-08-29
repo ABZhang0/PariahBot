@@ -2,3 +2,5 @@
 .env
 __pycache__/
 logs/
+Lavalink.jar
+application.yml/
