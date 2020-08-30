@@ -185,6 +185,9 @@ class Music(commands.Cog):
       controller.volume *= 2
     elif direction == 'down':
       controller.volume //= 2
+    
+    clamp = lambda v, min_v, max_v: max(min(max_v, v), min_v)
+    controller.volume = clamp(controller.volume, 1, 200)
 
     await ctx.send(f'Setting player volume to {controller.volume}', delete_after=10)
     await player.set_volume(controller.volume)
