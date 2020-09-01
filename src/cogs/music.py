@@ -50,14 +50,14 @@ class MusicController:
 
       self.next.clear()
 
-      self.afk_timer = Timer(10, self.afk_disconnect)
+      self.afk_timer = Timer(300, self.afk_disconnect) # 5 min timeout
       song = await self.queue.get() # waits if queue empty
       self.afk_timer.cancel()
       
       await player.play(song)
       await self.bot.change_presence(activity=discord.Game(name=song.info['title']))
       self.now_playing = song.info['title']
-      await self.channel.send(f'Now playing: **{self.now_playing}**')
+      await self.channel.send(f'Now playing: **{self.now_playing}**', delete_after=10)
 
       await self.next.wait()
 
@@ -65,7 +65,7 @@ class MusicController:
     player = self.bot.wavelink.get_player(self.guild_id)
     await player.stop()
     await player.disconnect()
-    await self.channel.send('Disconnected player due to inactivity...', delete_after=10)
+    if self.channel: await self.channel.send('Disconnected player due to inactivity...', delete_after=10)
   
 
 class Music(commands.Cog):
@@ -173,6 +173,7 @@ class Music(commands.Cog):
     track = tracks[int(response.content)-1]
 
     controller = self.get_controller(ctx)
+    controller.channel = ctx.message.channel
     await controller.queue.put(track)
     await ctx.send(f'Added to the queue: **{str(track)}**')
 
