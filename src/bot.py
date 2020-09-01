@@ -38,7 +38,11 @@ async def ping(ctx):
 
 @bot.event
 async def on_ready():
-  print(f'{bot.user} has logged in.')
+  print('Logged in as:')
+  print(f'Username: {bot.user.name}')
+  print(f'ID: {bot.user.id}')
+  print('------')
+  bot.load_extension('cogs.admin')
   bot.load_extension('cogs.music')
   bot.load_extension('cogs.games')
 

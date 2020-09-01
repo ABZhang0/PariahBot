@@ -8,6 +8,21 @@ import itertools
 from dotenv import load_dotenv
 import os
 
+
+class Timer:
+  def __init__(self, timeout, callback):
+    self._timeout = timeout
+    self._callback = callback
+    self._task = asyncio.ensure_future(self._job())
+
+  async def _job(self):
+    await asyncio.sleep(self._timeout)
+    await self._callback()
+
+  def cancel(self):
+    self._task.cancel()
+
+
 class MusicController:
   def __init__(self, bot, guild_id):
     self.bot = bot
@@ -19,6 +34,7 @@ class MusicController:
 
     self.volume = 40
     self.now_playing = None
+    self.afk_timer = None
 
     self.bot.loop.create_task(self.controller_loop())
 
@@ -34,11 +50,22 @@ class MusicController:
 
       self.next.clear()
 
-      song = await self.queue.get()
+      self.afk_timer = Timer(10, self.afk_disconnect)
+      song = await self.queue.get() # waits if queue empty
+      self.afk_timer.cancel()
+      
       await player.play(song)
-      self.now_playing = await self.bot.change_presence(activity=discord.Game(name=song.info['title']))
+      await self.bot.change_presence(activity=discord.Game(name=song.info['title']))
+      self.now_playing = song.info['title']
+      await self.channel.send(f'Now playing: **{self.now_playing}**')
 
       await self.next.wait()
+
+  async def afk_disconnect(self):
+    player = self.bot.wavelink.get_player(self.guild_id)
+    await player.stop()
+    await player.disconnect()
+    await self.channel.send('Disconnected player due to inactivity...', delete_after=10)
   
 
 class Music(commands.Cog):
@@ -47,6 +74,9 @@ class Music(commands.Cog):
     self.controllers = {}
     if not hasattr(bot, 'wavelink'): self.bot.wavelink = wavelink.Client(bot=self.bot)
     self.bot.loop.create_task(self.start_nodes())
+
+  async def destroy_nodes(self):
+    await self.node.destroy()
 
   async def start_nodes(self):
     await self.bot.wait_until_ready()
@@ -57,16 +87,16 @@ class Music(commands.Cog):
     WAVELINK_URI = os.getenv('WAVELINK_URI')
     WAVELINK_PASSWORD = os.getenv('WAVELINK_PASSWORD')
 
-    node = await self.bot.wavelink.initiate_node(
+    self.node = await self.bot.wavelink.initiate_node(
       host=WAVELINK_HOST,
       port=WAVELINK_PORT,
       rest_uri=WAVELINK_URI,
       password=WAVELINK_PASSWORD,
       identifier='TEST',
       region='us_east',
-      heartbeat=45
+      heartbeat=45 # heroku websocket timeout is 55 seconds
     )
-    node.set_hook(self.on_event_hook)
+    self.node.set_hook(self.on_event_hook)
 
   async def on_event_hook(self, event):
     if isinstance(event, (wavelink.TrackEnd, wavelink.TrackException)):
@@ -76,32 +106,32 @@ class Music(commands.Cog):
 
   def get_controller(self, value: Union[commands.Context, wavelink.Player]):
     if isinstance(value, commands.Context):
-      gid = value.guild.id
+      guild_id = value.guild.id
     else:
-      gid = value.guild_id
+      guild_id = value.guild_id
 
     try:
-      controller = self.controllers[gid]
+      controller = self.controllers[guild_id]
     except KeyError:
-      controller = MusicController(self.bot, gid)
-      self.controllers[gid] = controller
+      controller = MusicController(self.bot, guild_id)
+      self.controllers[guild_id] = controller
 
     return controller
   
   @commands.command(name='join', help='Invites bot to channel')
-  async def join(self, ctx, *, channel: discord.VoiceChannel=None):
-    if not channel:
+  async def join(self, ctx, *, voice_channel: discord.VoiceChannel=None):
+    if not voice_channel:
       try:
-        channel = ctx.author.voice.channel
+        voice_channel = ctx.author.voice.channel
       except AttributeError:
         ctx.send('Please specify a channel to join...')
 
     controller = self.get_controller(ctx)
-    controller.channel = channel
+    controller.channel = ctx.message.channel
 
     player = self.bot.wavelink.get_player(ctx.guild.id)
-    await ctx.send(f'Connecting to **{channel.name}**')
-    await player.connect(channel.id)
+    await ctx.send(f'Connecting to **{voice_channel.name}**')
+    await player.connect(voice_channel.id)
 
   @commands.command(name='disconnect', help='Removes bot from channel')
   async def stop(self, ctx):
