@@ -57,6 +57,11 @@ class TrackDeque(asyncio.Queue):
   def _put_front(self, item):
     self._queue.appendleft(item)
 
+  def clear(self):
+    while not self.empty():
+      self.get_nowait()
+      self.task_done()
+
 
 class MusicController:
   def __init__(self, bot, guild_id):
@@ -159,7 +164,7 @@ class Music(commands.Cog):
       try:
         voice_channel = ctx.author.voice.channel
       except AttributeError:
-        ctx.send('Please specify a channel to join...')
+        return await ctx.send('Please specify a channel to join...', delete_after=10)
 
     controller = self.get_controller(ctx)
     controller.channel = ctx.message.channel
@@ -205,12 +210,13 @@ class Music(commands.Cog):
 
     # TODO: validation
     response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id, timeout=30)
-    track = tracks[int(response.content)-1]
+    if 1 <= int(response.content) <= 10:
+      track = tracks[int(response.content)-1]
 
-    controller = self.get_controller(ctx)
-    controller.channel = ctx.message.channel
-    await controller.queue.put(track)
-    await ctx.send(f'Added to the queue: **{str(track)}**')
+      controller = self.get_controller(ctx)
+      controller.channel = ctx.message.channel
+      await controller.queue.put(track)
+      await ctx.send(f'Added to the queue: **{str(track)}**')
 
   @commands.command(name='pause', help='Pauses currently playing song')
   async def pause(self, ctx):
@@ -296,6 +302,17 @@ class Music(commands.Cog):
 
     await ctx.send(f'Total number of songs in queue: {len(controller.queue._queue)}')
     await ctx.send(embed=embed)
+
+  @commands.command(name='clear', help='Empties the song queue')
+  async def clear(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    controller = self.get_controller(ctx)
+
+    if not player.current or not controller.queue._queue:
+      return await ctx.send('There are no songs currently in the queue.', delete_after=10)
+
+    controller.queue.clear()
+    await ctx.send('Emptied the song queue.', delete_after=10)
 
 
 def setup(bot):
