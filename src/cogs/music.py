@@ -23,6 +23,41 @@ class Timer:
     self._task.cancel()
 
 
+class TrackDeque(asyncio.Queue):
+  async def put_front(self, item):
+    while self.full():
+      putter = self._loop.create_future()
+      self._putters.append(putter)
+      try:
+        await putter
+      except:
+        putter.cancel()  # Just in case putter is not done yet.
+        try:
+          # Clean self._putters from canceled putters.
+          self._putters.remove(putter)
+        except ValueError:
+          # The putter could be removed from self._putters by a
+          # previous get_nowait call.
+          pass
+        if not self.full() and not putter.cancelled():
+          # We were woken up by get_nowait(), but can't take
+          # the call.  Wake up the next in line.
+          self._wakeup_next(self._putters)
+        raise
+    return self.put_front_nowait(item)
+
+  def put_front_nowait(self, item):
+    # if self.full():
+    #   raise QueueFull
+    self._put_front(item)
+    self._unfinished_tasks += 1
+    self._finished.clear()
+    self._wakeup_next(self._getters)
+
+  def _put_front(self, item):
+    self._queue.appendleft(item)
+
+
 class MusicController:
   def __init__(self, bot, guild_id):
     self.bot = bot
@@ -30,7 +65,7 @@ class MusicController:
     self.channel = None
 
     self.next = asyncio.Event()
-    self.queue = asyncio.Queue()
+    self.queue = TrackDeque()
 
     self.volume = 40
     self.now_playing = None
@@ -51,12 +86,12 @@ class MusicController:
       self.next.clear()
 
       self.afk_timer = Timer(300, self.afk_disconnect) # 5 min timeout
-      song = await self.queue.get() # waits if queue empty
+      track = await self.queue.get() # waits if queue empty
       self.afk_timer.cancel()
       
-      await player.play(song)
-      await self.bot.change_presence(activity=discord.Game(name=song.info['title']))
-      self.now_playing = song.info['title']
+      await player.play(track)
+      await self.bot.change_presence(activity=discord.Game(name=track.info['title']))
+      self.now_playing = track.info['title']
       await self.channel.send(f'Now playing: **{self.now_playing}**', delete_after=10)
 
       await self.next.wait()
@@ -235,6 +270,17 @@ class Music(commands.Cog):
 
     controller.now_playing = await ctx.send(f'Now playing: **{player.current}**')
 
+  @commands.command(name='repeat', help='Adds current song into the front of the queue')
+  async def repeat(self, ctx):
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    track = player.current
+    if not track:
+      return await ctx.send('I\'m not playing anything!', delete_after=10)
+
+    controller = self.get_controller(ctx)
+    await controller.queue.put_front(track)
+    await ctx.send(f'Added to the queue: **{str(track)}**')
+
   @commands.command(name='queue', help='Returns song queue info')
   async def queue(self, ctx):
     player = self.bot.wavelink.get_player(ctx.guild.id)
@@ -245,7 +291,7 @@ class Music(commands.Cog):
 
     upcoming = list(itertools.islice(controller.queue._queue, 0, 5))
 
-    fmt = '\n'.join(f'**`{str(song)}`**' for song in upcoming)
+    fmt = '\n'.join(f'**`{str(track)}`**' for track in upcoming)
     embed = discord.Embed(title=f'Upcoming - Next {len(upcoming)}', description=fmt)
 
     await ctx.send(f'Total number of songs in queue: {len(controller.queue._queue)}')
