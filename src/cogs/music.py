@@ -86,7 +86,7 @@ class MusicController:
 
     while True:
       if self.now_playing:
-        await self.now_playing.delete()
+        self.now_playing = None
 
       self.next.clear()
 
@@ -96,7 +96,7 @@ class MusicController:
       
       await player.play(track)
       await self.bot.change_presence(activity=discord.Game(name=track.info['title']))
-      self.now_playing = track.info['title']
+      self.now_playing = track
       await self.channel.send(f'Now playing: **{self.now_playing}**', delete_after=10)
 
       await self.next.wait()
@@ -141,7 +141,7 @@ class Music(commands.Cog):
   async def on_event_hook(self, event):
     if isinstance(event, (wavelink.TrackEnd, wavelink.TrackException)):
       controller = self.get_controller(event.player)
-      controller.now_playing = await controller.bot.change_presence(activity=None)
+      await controller.bot.change_presence(activity=None)
       controller.next.set()
 
   def get_controller(self, value: Union[commands.Context, wavelink.Player]):
@@ -188,11 +188,41 @@ class Music(commands.Cog):
     await player.disconnect()
     await ctx.send('Disconnected player and killed controller...', delete_after=10)
 
-  @commands.command(name='play', help='Returns song results by query')
-  async def play(self, ctx, *, query):
-    query = f'ytsearch:{query}'
+  @commands.command(name='play', help='Returns YouTube results by query')
+  async def play_yt(self, ctx, *, query):
+    search_query = f'ytsearch:{query}'
 
-    tracks = await self.bot.wavelink.get_tracks(f'{query}')
+    tracks = await self.bot.wavelink.get_tracks(f'{search_query}')
+    if not tracks:
+      return await ctx.send('Couldn\'t find any songs with that query :(')
+
+    player = self.bot.wavelink.get_player(ctx.guild.id)
+    if not player.is_connected:
+      await ctx.invoke(self.join)
+
+    tracks = tracks[0:10]
+    query_result = ''
+    for i, track in enumerate(tracks):
+      s = track.info['length']/1000
+      query_result += f'**{i+1})** {track.info["title"]} - {time.strftime("%H:%M:%S", time.gmtime(s))}\n{track.info["uri"]}\n'
+    query_embed = discord.Embed(description=query_result)
+    await ctx.channel.send(embed=query_embed)
+
+    # TODO: validation
+    response = await self.bot.wait_for('message', check=lambda m: m.author.id == ctx.author.id, timeout=30)
+    if 1 <= int(response.content) <= 10:
+      track = tracks[int(response.content)-1]
+
+      controller = self.get_controller(ctx)
+      controller.channel = ctx.message.channel
+      await controller.queue.put(track)
+      await ctx.send(f'Added to the queue: **{str(track)}**')
+
+  @commands.command(name='play-sc', help='Returns SoundCloud results by query')
+  async def play_sc(self, ctx, *, query):
+    search_query = f'scsearch:{query}'
+
+    tracks = await self.bot.wavelink.get_tracks(f'{search_query}')
     if not tracks:
       return await ctx.send('Couldn\'t find any songs with that query :(')
 
@@ -271,10 +301,11 @@ class Music(commands.Cog):
     if not player.current:
       return await ctx.send('I\'m not playing anything!', delete_after=10)
 
-    controller = self.get_controller(ctx)
+    # controller = self.get_controller(ctx)
     # await controller.now_playing.delete()
+    # controller.now_playing = player.current
 
-    controller.now_playing = await ctx.send(f'Now playing: **{player.current}**')
+    await ctx.send(f'Now playing: **{player.current}**')
 
   @commands.command(name='repeat', help='Adds current song into the front of the queue')
   async def repeat(self, ctx):
